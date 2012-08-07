@@ -1,0 +1,3 @@
+[submodule "vendor/gree-community"]
+	path = vendor/gree-community
+	url = git@github.com:todesking/gree-community.git

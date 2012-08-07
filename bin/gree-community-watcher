@@ -1,0 +1,120 @@
+#!/usr/bin/env ruby
+# -*- coding:utf-8 -*-
+
+load File.join(File.dirname(__FILE__), '..', 'vendor', 'gree-community', 'lib', 'gree-community.rb')
+
+require 'pit'
+require 'xmpp4r'
+require 'xmpp4r/muc'
+require 'yaml'
+
+Jabber::debug = ENV['JABBER_DEBUG'].to_i != 0
+
+# メッセージの送出を行わない
+DRY_RUN = ENV['DRY_RUN'].to_i != 0
+
+# https://github.com/ln/xmpp4r/issues/3#issuecomment-1739952
+module REXMLEncodingFix
+  if RUBY_VERSION < "1.9"
+    # ...
+  else
+    # Encoding patch
+    require 'socket'
+    class TCPSocket
+      def external_encoding
+        Encoding::BINARY
+      end
+    end
+
+    require 'rexml/source'
+    class REXML::IOSource
+      alias_method :encoding_assign, :encoding=
+        def encoding=(value)
+          encoding_assign(value) if value
+        end
+    end
+
+    begin
+      # OpenSSL is optional and can be missing
+      require 'openssl'
+      class OpenSSL::SSL::SSLSocket
+        def external_encoding
+          Encoding::BINARY
+        end
+      end
+    rescue
+    end
+  end
+end
+
+CONFIG_FILENAME='config.yml'
+STATE_FILENAME='state.yml'
+
+if __FILE__ == $0
+  "#{CONFIG_FILENAME}がない" unless File.exists? CONFIG_FILENAME
+  config = Hash.new{|key|raise "設定項目#{key}がありません"}.merge! File.open(CONFIG_FILENAME){|f| YAML.load(f) }
+  threads = config['threads'].map{|thread_id|
+    GREE::Community::Thread.new(thread_id)
+  }
+
+  gree_user_info = Pit.get(config['gree']['pit-id'], require: {
+    'mail'=> 'データ取得に使うGREEアカウントのメアド',
+    'password'=> 'password',
+  })
+  fetcher = GREE::Community::Fetcher.new(gree_user_info['mail'], gree_user_info['password'])
+
+  nick = config['jabber']['nick']
+  room = config['jabber']['room']
+  room = Jabber::JID.new("#{room}/#{nick}")
+  user_info = Pit.get(config['jabber']['pit-id'], require: {
+    'jid'=> '通知に使うJabberアカウントのJID',
+    'password'=> 'password',
+  })
+  puts "Connecting..."
+  client = Jabber::Client.new(Jabber::JID.new(user_info['jid']))
+  client.connect
+  client.auth(user_info['password'])
+  puts "Success."
+
+  muc = Jabber::MUC::MUCClient.new(client)
+  muc.join(room)
+
+  state = {
+    last_notified_comment_id: '0',
+  }
+
+  if File.exists?(STATE_FILENAME)
+    state.merge! File.open(STATE_FILENAME){|f| YAML.load(f) }
+  end
+
+  done = false
+  until done
+    puts "Updating threads"
+    threads.each{|t|
+      t.fetch(fetcher)
+      puts "  - #{t.id} #{t.title}"
+    }
+
+    new_last_notified_comment_id = '0'
+    puts "Posting messages"
+    threads.each{|thread|
+      thread.recent_comments.select{|c| c.id > state[:last_notified_comment_id]}.each do|comment|
+        new_last_notified_comment_id = [new_last_notified_comment_id, comment.id].max
+        message = Jabber::Message.new(room, "#{comment.user_name}@#{thread.title}:\n#{comment.body_text.gsub(/\n\n+/,"\n\n")}")
+        if DRY_RUN
+          puts "DRY RUN: #{message}"
+        else
+          muc.send(message)
+        end
+      end
+    }
+    state[:last_notified_comment_id] = new_last_notified_comment_id
+
+    File.open(STATE_FILENAME,'w'){|f| f.puts YAML.dump(state) }
+
+    puts "Sleeping"
+    sleep config['sleep_sec']
+  end
+  client.close
+end
+

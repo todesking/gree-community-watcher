@@ -1,0 +1,17 @@
+threads: # 監視対象スレッドのID
+    # - 1234 # ひとりごと
+    # - 9999 # 要望
+
+sleep_sec: 300 # スレッドの更新をチェックする間隔[秒]
+
+jabber:
+    # チャットルームにログインするときのニックネーム
+    nick: community-comment
+    # 更新の通知先チャットルーム
+    room: bot@conference.example.com
+    # Jabberアカウント情報を指すpit識別子
+    pit-id: my-jabber-bot
+
+gree:
+    # GREEアカウント情報を指すpit識別子
+    pit-id: gree
