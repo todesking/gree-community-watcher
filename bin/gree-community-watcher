@@ -80,13 +80,16 @@ if __FILE__ == $0
   muc.join(room)
 
   state = {
-    last_notified_comment_id: '0',
+    last_notified_comment_id: 0,
   }
 
   if File.exists?(STATE_FILENAME)
     state.merge! File.open(STATE_FILENAME){|f| YAML.load(f) }
   end
 
+  puts "state: #{state.inspect}"
+
+  new_last_notified_comment_id = state[:last_notified_comment_id]
   done = false
   until done
     puts "Updating threads"
@@ -95,19 +98,18 @@ if __FILE__ == $0
       puts "  - #{t.id} #{t.title}"
     }
 
-    new_last_notified_comment_id = '0'
     puts "Posting messages"
     threads.each{|thread|
       thread.recent_comments.select{|c| c.id > state[:last_notified_comment_id]}.each do|comment|
         new_last_notified_comment_id = [new_last_notified_comment_id, comment.id].max
         message = Jabber::Message.new(room, "#{comment.user_name}@#{thread.title}:\n#{comment.body_text.gsub(/\n\n+/,"\n\n")}")
-        if DRY_RUN
-          puts "DRY RUN: #{message}"
-        else
+        puts "#{comment.id} by #{comment.user_name}(#{comment.time})"
+        unless DRY_RUN
           muc.send(message)
         end
       end
     }
+    puts "updating last_notified_comment_id: #{new_last_notified_comment_id}"
     state[:last_notified_comment_id] = new_last_notified_comment_id
 
     File.open(STATE_FILENAME,'w'){|f| f.puts YAML.dump(state) }
