@@ -20,14 +20,14 @@ module REXMLEncodingFix
   else
     # Encoding patch
     require 'socket'
-    class TCPSocket
+    class ::TCPSocket
       def external_encoding
         Encoding::BINARY
       end
     end
 
     require 'rexml/source'
-    class REXML::IOSource
+    class ::REXML::IOSource
       alias_method :encoding_assign, :encoding=
         def encoding=(value)
           encoding_assign(value) if value
@@ -37,7 +37,7 @@ module REXMLEncodingFix
     begin
       # OpenSSL is optional and can be missing
       require 'openssl'
-      class OpenSSL::SSL::SSLSocket
+      class ::OpenSSL::SSL::SSLSocket
         def external_encoding
           Encoding::BINARY
         end
